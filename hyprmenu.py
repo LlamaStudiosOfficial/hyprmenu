@@ -782,8 +782,11 @@ class App(Gtk.Application):
             if row.item["path"] == path:
                 self._restoring = True
                 self.listbox.select_row(row)
-                self.listbox.scroll_to(row, Gtk.ListScrollFlags.NONE, None)
+                if hasattr(self.listbox, "scroll_to"):
+                    self.listbox.scroll_to(row, Gtk.ListScrollFlags.NONE,
+                                           None)
                 self._restoring = False
+                self.do_load(row.item)
                 return
             row = row.get_next_sibling()
 
@@ -1112,6 +1115,7 @@ class App(Gtk.Application):
         root.append(bottom)
         dialog.set_child(root)
         name_entry.grab_focus()
+        self._new_dialog = dialog
         dialog.present()
 
         def create():
