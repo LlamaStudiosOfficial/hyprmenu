@@ -120,6 +120,12 @@ headerbar {
     background-color: #fcfcfc;
     border-top: 1px solid #d8dcde;
 }
+.icon-picker button {
+    padding: 6px 14px;
+}
+.icon-picker .picker-icon {
+    padding: 12px;
+}
 """
 
 
@@ -249,16 +255,15 @@ def build_item(path):
     }
 
 
-class IconPickerDialog(Gtk.Dialog):
-    """Searchable picker over every icon in the current theme."""
+class IconPickerDialog(Gtk.Window):
+    """Searchable picker over every icon in the current theme, with a
+    Browse… button for picking an icon from a file."""
 
     def __init__(self, parent, current, on_pick):
         super().__init__(title="Choose icon", transient_for=parent,
                          modal=True)
         self.on_pick = on_pick
-        self.add_button("Cancel", Gtk.ResponseType.CANCEL)
-        select_btn = self.add_button("Select", Gtk.ResponseType.OK)
-        select_btn.add_css_class("suggested-action")
+        self.add_css_class("icon-picker")
         self.set_default_size(560, 520)
 
         icon_theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
@@ -270,6 +275,13 @@ class IconPickerDialog(Gtk.Dialog):
         self.search = Gtk.SearchEntry(placeholder_text="Search icons…")
         self.search.connect("search-changed", self.on_search_changed)
         self.search.connect("activate", self.accept)
+        self.search.set_hexpand(True)
+
+        browse_btn = Gtk.Button(label="Browse…")
+        browse_btn.connect("clicked", self.on_browse)
+        top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        top.append(self.search)
+        top.append(browse_btn)
 
         self.filter = Gtk.CustomFilter.new(self.match, None)
         self.filtered = Gtk.FilterListModel.new(self.store, self.filter)
@@ -293,16 +305,23 @@ class IconPickerDialog(Gtk.Dialog):
         scrolled = Gtk.ScrolledWindow(vexpand=True)
         scrolled.set_child(grid)
 
-        content = self.get_content_area()
-        content.set_spacing(6)
-        content.set_margin_top(8)
-        content.set_margin_bottom(8)
-        content.set_margin_start(8)
-        content.set_margin_end(8)
-        content.append(self.search)
-        content.append(scrolled)
+        cancel_btn = Gtk.Button(label="Cancel")
+        cancel_btn.connect("clicked", lambda _b: self.close())
+        select_btn = Gtk.Button(label="Select")
+        select_btn.add_css_class("suggested-action")
+        select_btn.connect("clicked", lambda _b: self.accept())
+        bottom = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6,
+                         halign=Gtk.Align.END)
+        bottom.append(cancel_btn)
+        bottom.append(select_btn)
 
-        self.connect("response", self.on_response)
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8,
+                       margin_top=8, margin_bottom=8, margin_start=8,
+                       margin_end=8)
+        root.append(top)
+        root.append(scrolled)
+        root.append(bottom)
+        self.set_child(root)
 
     def match(self, item, *_args):
         q = self.search.get_text().strip().lower()
@@ -332,11 +351,29 @@ class IconPickerDialog(Gtk.Dialog):
             self.on_pick(item.get_string())
         self.close()
 
-    def on_response(self, _dialog, response):
-        if response == Gtk.ResponseType.OK:
-            self.accept()
-        else:
+    def on_browse(self, _btn):
+        dialog = Gtk.FileDialog()
+        dialog.set_title("Choose icon file")
+        filt = Gtk.FileFilter()
+        filt.set_name("Images")
+        for pattern in ("*.png", "*.svg", "*.xpm", "*.jpg", "*.jpeg",
+                        "*.webp", "*.ico", "*.bmp"):
+            filt.add_pattern(pattern)
+        store = Gio.ListStore.new(Gtk.FileFilter)
+        store.append(filt)
+        dialog.set_filters(store)
+
+        def cb(fd, result):
+            try:
+                gfile = fd.open_finish(result)
+            except GLib.Error as exc:
+                if exc.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED):
+                    return
+                return
+            self.on_pick(gfile.get_path())
             self.close()
+
+        dialog.open(self, None, cb, None)
 
 
 class App(Gtk.Application):
@@ -729,7 +766,7 @@ class App(Gtk.Application):
         dialog = Gtk.AlertDialog(message="Discard unsaved changes?")
         dialog.set_detail("The current file has uncommitted edits.")
         dialog.set_buttons(["Cancel", "Discard"])
-        dialog.set_default_response(0)
+        dialog.set_default_button(0)
 
         def cb(dlg, result):
             if dlg.choose_finish(result) == 1:
@@ -1098,7 +1135,7 @@ class App(Gtk.Application):
         dialog = Gtk.AlertDialog(message="Delete this entry?")
         dialog.set_detail(str(path))
         dialog.set_buttons(["Cancel", "Delete"])
-        dialog.set_default_response(0)
+        dialog.set_default_button(0)
 
         def cb(dlg, result):
             if dlg.choose_finish(result) != 1:
@@ -1130,14 +1167,14 @@ class App(Gtk.Application):
             "/usr/local/share/applications and /usr/share/applications.\n\n"
             "Comments inside .desktop files are not preserved on save.")
         dialog.set_buttons(["Close"])
-        dialog.set_default_response(0)
+        dialog.set_default_button(0)
         dialog.choose(self.window, None, lambda d, r: None, None)
 
     def error(self, message):
         dialog = Gtk.AlertDialog(message="Error")
         dialog.set_detail(message)
         dialog.set_buttons(["OK"])
-        dialog.set_default_response(0)
+        dialog.set_default_button(0)
         dialog.choose(self.window, None, lambda d, r: None, None)
 
 
