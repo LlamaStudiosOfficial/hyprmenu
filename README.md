@@ -1,9 +1,7 @@
-# Walker Desktop Editor
+# Desktop Entry Editor
 
-A GTK4 application for browsing and editing `.desktop` files for
-[Walker](https://github.com/abenz1267/walker), the keyboard-driven
-application launcher for Hyprland. The interface is modelled after
-KDE's *KMenuEdit*.
+A GTK4 application for browsing and editing `.desktop` files. The
+interface is modelled after KDE's *KMenuEdit*.
 
 ## Features
 
@@ -16,6 +14,8 @@ KDE's *KMenuEdit*.
   - *Command* column: executable (with Browse…), work path, run-in-terminal
   - *Advanced* section: `StartupWMClass`, `Categories`, `Keywords`,
     `MimeType`, `Actions`, and any other property you add or remove
+- **Icon picker** — searchable dialog over every icon in the current
+  theme; absolute icon paths are also rendered.
 - **Raw-text fallback** — files that are not valid INI still open and
   can be saved verbatim.
 - **Read-only safety** — saving to system directories is blocked with a
@@ -37,19 +37,13 @@ KDE's *KMenuEdit*.
 ./hyprmenu.py
 ```
 
-Run directly, or add it to your Hyprland keybinds:
-
-```ini
-bind = SUPER, E, exec, hyprmenu.py
-```
-
 ## Notes
 
 - Values are written with `key = value` syntax; unknown keys are
   preserved in insertion order.
 - Comments inside `.desktop` files are **not** preserved on save.
-- Walker reads your user `.desktop` files at `~/.local/share/applications`
-  and caches them; run `walker --reload` or restart it after editing.
+- After editing, launcher menus may need a refresh to pick up the new
+  entries (relaunch your launcher or regenerate its cache).
 
 ---
 

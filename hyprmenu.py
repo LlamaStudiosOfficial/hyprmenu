@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 """
-GTK4 editor for .desktop files, tuned for Walker on Hyprland.
+GTK4 editor for .desktop files.
 
 Visual style is modelled after KDE's KMenuEdit:
   * left  : searchable list of installed applications
@@ -21,7 +21,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
-APP_ID = "io.github.hyprmenu.walker.desktop-editor"
+APP_ID = "io.github.hyprmenu.desktop-editor"
 
 XDG_DATA_DIRS = [
     Path.home() / ".local/share/applications",
@@ -73,7 +73,7 @@ BOOL_KEYS = {
 TYPE_CHOICES = ["Application", "Link", "Directory"]
 
 CSS = b"""
-window.walker-editor {
+window.desktop-editor {
     background-color: #eff0f1;
     color: #31363b;
 }
@@ -249,6 +249,96 @@ def build_item(path):
     }
 
 
+class IconPickerDialog(Gtk.Dialog):
+    """Searchable picker over every icon in the current theme."""
+
+    def __init__(self, parent, current, on_pick):
+        super().__init__(title="Choose icon", transient_for=parent,
+                         modal=True)
+        self.on_pick = on_pick
+        self.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        select_btn = self.add_button("Select", Gtk.ResponseType.OK)
+        select_btn.add_css_class("suggested-action")
+        self.set_default_size(560, 520)
+
+        icon_theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
+        names = sorted(icon_theme.get_icon_names())
+        self.store = Gio.ListStore.new(Gtk.StringObject)
+        for name in names:
+            self.store.append(Gtk.StringObject.new(name))
+
+        self.search = Gtk.SearchEntry(placeholder_text="Search icons…")
+        self.search.connect("search-changed", self.on_search_changed)
+        self.search.connect("activate", self.accept)
+
+        self.filter = Gtk.CustomFilter.new(self.match, None)
+        self.filtered = Gtk.FilterListModel.new(self.store, self.filter)
+        self.selection = Gtk.SingleSelection.new(self.filtered)
+        self.selection.set_autoselect(True)
+
+        if current:
+            for i in range(self.store.get_n_items()):
+                if self.store.get_item(i).get_string() == current:
+                    self.selection.select_item(i, True)
+                    break
+
+        factory = Gtk.SignalListItemFactory()
+        factory.connect("setup", self.on_factory_setup)
+        factory.connect("bind", self.on_factory_bind)
+
+        grid = Gtk.GridView.new(self.selection, factory)
+        grid.set_min_columns(4)
+        grid.set_max_columns(16)
+        grid.connect("activate", self.on_grid_activate)
+        scrolled = Gtk.ScrolledWindow(vexpand=True)
+        scrolled.set_child(grid)
+
+        content = self.get_content_area()
+        content.set_spacing(6)
+        content.set_margin_top(8)
+        content.set_margin_bottom(8)
+        content.set_margin_start(8)
+        content.set_margin_end(8)
+        content.append(self.search)
+        content.append(scrolled)
+
+        self.connect("response", self.on_response)
+
+    def match(self, item, *_args):
+        q = self.search.get_text().strip().lower()
+        if not q:
+            return True
+        return q in item.get_string().lower()
+
+    def on_search_changed(self, _entry):
+        self.filter.changed(Gtk.FilterChange.DIFFERENT)
+
+    def on_factory_setup(self, _factory, list_item):
+        image = Gtk.Image(icon_size=Gtk.IconSize.LARGE)
+        image.set_pixel_size(36)
+        image.add_css_class("picker-icon")
+        list_item.set_child(image)
+
+    def on_factory_bind(self, _factory, list_item):
+        image = list_item.get_child()
+        image.set_from_icon_name(list_item.get_item().get_string())
+
+    def on_grid_activate(self, _grid, _position):
+        self.accept()
+
+    def accept(self, *_args):
+        item = self.selection.get_selected_item()
+        if item is not None:
+            self.on_pick(item.get_string())
+        self.close()
+
+    def on_response(self, _dialog, response):
+        if response == Gtk.ResponseType.OK:
+            self.accept()
+        else:
+            self.close()
+
+
 class App(Gtk.Application):
     def __init__(self):
         super().__init__(application_id=APP_ID)
@@ -297,12 +387,12 @@ class App(Gtk.Application):
     def build_window(self):
         win = Gtk.ApplicationWindow(application=self,
                                     default_width=1020, default_height=660)
-        win.add_css_class("walker-editor")
+        win.add_css_class("desktop-editor")
         self.window = win
 
         # header --------------------------------------------------------
         hb = Gtk.HeaderBar()
-        title = Gtk.Label(label="Desktop Editor — Walker .desktop files",
+        title = Gtk.Label(label="Desktop Entry Editor",
                           halign=Gtk.Align.START, xalign=0)
         title.add_css_class("title")
         hb.set_title_widget(title)
@@ -371,17 +461,26 @@ class App(Gtk.Application):
         general.set_size_request(300, -1)
         general.append(self.section_label("General"))
 
+        icon_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12,
+                           margin_start=12, margin_end=12)
         self.icon_preview = Gtk.Image(icon_name="application-x-executable")
         self.icon_preview.set_icon_size(Gtk.IconSize.LARGE)
-        self.icon_preview.set_halign(Gtk.Align.START)
-        self.icon_preview.set_margin_start(12)
-        self.icon_preview.set_margin_bottom(4)
-        general.append(self.icon_preview)
+        self.icon_preview.set_pixel_size(48)
+        icon_box.append(self.icon_preview)
 
-        self.icon_entry = Gtk.Entry(placeholder_text="Theme icon name")
-        self.icon_entry.set_hexpand(True)
-        self.icon_entry.connect("changed", self.on_icon_changed)
-        general.append(self.field_row("Icon", self.icon_entry))
+        icon_text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        btn_icon = Gtk.Button(label="Choose…")
+        btn_icon.connect("clicked", self.on_choose_icon)
+        btn_icon.set_halign(Gtk.Align.START)
+        self.icon_name_label = Gtk.Label(label="None", xalign=0,
+                                         halign=Gtk.Align.START)
+        self.icon_name_label.add_css_class("dim-label")
+        self.icon_name_label.set_ellipsize(Pango.EllipsizeMode.END)
+        icon_text.append(btn_icon)
+        icon_text.append(self.icon_name_label)
+        icon_text.set_hexpand(True)
+        icon_box.append(icon_text)
+        general.append(icon_box)
 
         self.general_grid = Gtk.Grid(column_spacing=8, row_spacing=6,
                                      margin_start=12, margin_end=12,
@@ -673,7 +772,7 @@ class App(Gtk.Application):
             self.raw_view.get_buffer().set_text(text)
         self._loading = False
         self.modified = False
-        self.window.set_title("Desktop Editor — Walker")
+        self.window.set_title("Desktop Entry Editor")
 
         writable = os.access(item["path"], os.W_OK)
         suffix = "" if writable else "  (read-only — use Save As)"
@@ -692,8 +791,7 @@ class App(Gtk.Application):
                 idx = TYPE_CHOICES.index(value) if value in TYPE_CHOICES else 0
                 widget.set_selected(idx)
 
-        self.icon_entry.set_text(entry.get("Icon") or "")
-        self.update_icon(self.icon_entry.get_text())
+        self.update_icon(entry.get("Icon") or "")
         self.chk_show_in_menu.set_active(not bool_from_str(entry.get("NoDisplay")))
         self.chk_hidden.set_active(bool_from_str(entry.get("Hidden")))
 
@@ -743,7 +841,7 @@ class App(Gtk.Application):
         self.current = None
         self.stack.set_visible_child_name("form")
         self.path_label.set_text("")
-        self.window.set_title("Desktop Editor — Walker")
+        self.window.set_title("Desktop Entry Editor")
 
     # ------------------------------------------------------------ editing
 
@@ -751,7 +849,7 @@ class App(Gtk.Application):
         if self._loading:
             return
         self.modified = True
-        self.window.set_title("Desktop Editor — Walker *")
+        self.window.set_title("Desktop Entry Editor *")
 
     def on_entry_changed(self, entry, key):
         if self._loading or self.current is None:
@@ -766,17 +864,30 @@ class App(Gtk.Application):
         self.current.set(key, TYPE_CHOICES[dropdown.get_selected()])
         self.mark_modified()
 
-    def on_icon_changed(self, entry):
-        if self._loading or self.current is None:
+    def on_choose_icon(self, _btn):
+        if self.current is None:
             return
-        text = entry.get_text()
-        self.current.set("Icon", text if text else None)
-        self.update_icon(text)
+        picker = IconPickerDialog(
+            self.window,
+            self.current.get("Icon") or "",
+            on_pick=lambda name: self.set_icon(name))
+        picker.present()
+
+    def set_icon(self, icon_name):
+        if self.current is None:
+            return
+        self.current.set("Icon", icon_name if icon_name else None)
+        self.update_icon(icon_name)
         self.mark_modified()
 
     def update_icon(self, icon_name):
-        self.icon_preview.set_from_icon_name(
-            icon_name or "application-x-executable")
+        icon_name = icon_name or ""
+        if icon_name.startswith("/"):
+            self.icon_preview.set_from_file(icon_name)
+        else:
+            self.icon_preview.set_from_icon_name(
+                icon_name or "application-x-executable")
+        self.icon_name_label.set_text(icon_name or "None")
 
     def on_bool_toggled(self, chk):
         if self._loading or self.current is None:
@@ -877,7 +988,7 @@ class App(Gtk.Application):
             self.current.save(path)
             self.current = DesktopEntry.parse(path)
         self.modified = False
-        self.window.set_title("Desktop Editor — Walker")
+        self.window.set_title("Desktop Entry Editor")
         self.path_label.set_text(str(path))
 
     def current_path(self):
@@ -1011,9 +1122,9 @@ class App(Gtk.Application):
         self.quit()
 
     def on_action_about(self, _a, _p):
-        dialog = Gtk.AlertDialog(message="Desktop Editor — Walker")
+        dialog = Gtk.AlertDialog(message="Desktop Entry Editor")
         dialog.set_detail(
-            "A GTK4 .desktop file editor for Walker on Hyprland,\n"
+            "A GTK4 editor for .desktop files,\n"
             "styled after KDE's KMenuEdit.\n\n"
             "Files are read from ~/.local/share/applications,\n"
             "/usr/local/share/applications and /usr/share/applications.\n\n"
