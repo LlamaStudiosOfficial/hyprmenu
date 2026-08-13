@@ -18,7 +18,8 @@ from pathlib import Path
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gio, GLib, Gtk, Pango
+gi.require_version("Gdk", "4.0")
+from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
 APP_ID = "io.github.hyprmenu.walker.desktop-editor"
 
@@ -48,20 +49,20 @@ FIELD_SPECS = [
     ("GenericName", "GenericName", "entry", "general"),
     ("Comment", "Comment", "entry", "general"),
     ("Exec", "Exec", "entry", "command"),
-    ("Path", "Path", "entry", "command"),
-    ("Terminal", "Terminal", "bool", "command"),
-    ("StartupNotify", "StartupNotify", "bool", "command"),
+    ("Path", "Work path", "entry", "command"),
+    ("Terminal", "Run in terminal", "bool", "command"),
+    ("StartupNotify", "Startup notification", "bool", "command"),
     ("Type", "Type", "enum", "advanced"),
     ("TryExec", "TryExec", "entry", "advanced"),
-    ("StartupWMClass", "StartupWMClass", "entry", "advanced"),
+    ("StartupWMClass", "Startup WM class", "entry", "advanced"),
     ("Categories", "Categories", "entry", "advanced"),
     ("Keywords", "Keywords", "entry", "advanced"),
-    ("MimeType", "MimeType", "entry", "advanced"),
+    ("MimeType", "MIME types", "entry", "advanced"),
     ("Actions", "Actions", "entry", "advanced"),
     ("Version", "Version", "entry", "advanced"),
-    ("DBusActivatable", "DBusActivatable", "bool", "advanced"),
-    ("PrefersNonDefaultGPU", "PrefersNonDefaultGPU", "bool", "advanced"),
-    ("X-GNOME-Autostart-enabled", "X-GNOME-Autostart-enabled", "bool", "advanced"),
+    ("DBusActivatable", "DBus activatable", "bool", "advanced"),
+    ("PrefersNonDefaultGPU", "Prefers non-default GPU", "bool", "advanced"),
+    ("X-GNOME-Autostart-enabled", "Autostart enabled", "bool", "advanced"),
 ]
 
 BOOL_KEYS = {
@@ -84,7 +85,8 @@ headerbar {
     background-color: #f7f8f8;
     border-right: 1px solid #d8dcde;
 }
-.sidebar list {
+.sidebar list,
+.sidebar listview {
     background-color: #f7f8f8;
 }
 .sidebar row {
@@ -158,9 +160,6 @@ class DesktopEntry:
         else:
             self.parser.set(section, key, str(value))
 
-    def delete(self, section="Desktop Entry"):
-        self.parser.remove_section(section)
-
     def main_options(self):
         if self.parser.has_section("Desktop Entry"):
             return list(self.parser.items("Desktop Entry"))
@@ -191,6 +190,26 @@ def bool_from_str(value):
     return str(value).strip().lower() in ("true", "1", "yes", "on")
 
 
+class AppRow(Gtk.ListBoxRow):
+    """List row carrying the application item it renders."""
+
+    def __init__(self, item):
+        super().__init__()
+        self.item = item
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1,
+                      margin_top=4, margin_bottom=4)
+        name = Gtk.Label(label=item["name"], xalign=0, halign=Gtk.Align.START,
+                         ellipsize=Pango.EllipsizeMode.END)
+        box.append(name)
+        if item["summary"]:
+            summary = Gtk.Label(label=item["summary"], xalign=0,
+                                halign=Gtk.Align.START,
+                                ellipsize=Pango.EllipsizeMode.END)
+            summary.add_css_class("dim-label")
+            box.append(summary)
+        self.set_child(box)
+
+
 def iter_desktop_files():
     seen, out = set(), []
     for base in XDG_DATA_DIRS:
@@ -217,10 +236,11 @@ def build_item(path):
     try:
         entry = DesktopEntry.parse(path)
         name = entry.get("Name") or path.stem
-        parts = [p for p in (entry.get("GenericName"), entry.get("Comment"), entry.get("Exec")) if p]
+        parts = [p for p in (entry.get("GenericName"), entry.get("Comment"),
+                             entry.get("Exec")) if p]
         summary = " · ".join(parts)
     except Exception:
-        summary = "(unreadable — will open as raw text)"
+        summary = "(unreadable — opens as raw text)"
     return {
         "path": str(path),
         "base": path.name,
@@ -238,35 +258,38 @@ class App(Gtk.Application):
         self.modified = False
         self._loading = False
         self._restoring = False
-        self._bool_present = {}
         self._bool_touched = set()
         self._last_row = None
         self.field_widgets = {}
 
-    # ------------------------------------------------------------- actions
+    # ----------------------------------------------------------- actions
 
     def do_startup(self):
         Gtk.Application.do_startup(self)
 
         css = Gtk.CssProvider()
         css.load_from_data(CSS)
-        Gtk.StyleContext.add_provider_for_display(
-            Gtk.Widget.get_default_display().get_display() if False else GdkDisplay(),
-            css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        display = Gdk.Display.get_default()
+        if display is not None:
+            Gtk.StyleContext.add_provider_for_display(
+                display, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
-        for name in ("new", "delete", "save", "save-as", "refresh", "about", "quit"):
+        for name in ("new", "delete", "save", "save-as", "refresh", "about",
+                     "quit"):
             action = Gio.SimpleAction.new(name, None)
-            action.connect("activate", getattr(self, f"on_action_{name}"))
+            action.connect("activate",
+                           getattr(self, f"on_action_{name.replace('-', '_')}"))
             self.add_action(action)
         self.set_accels_for_action("app.new", ["<Ctrl>n"])
         self.set_accels_for_action("app.save", ["<Ctrl>s"])
         self.set_accels_for_action("app.save-as", ["<Ctrl><Shift>s"])
-        self.set_accels_for_action("app.refresh", ["<F5>"])
+        self.set_accels_for_action("app.refresh", ["F5"])
         self.set_accels_for_action("app.quit", ["<Ctrl>q"])
 
-    def on_activate(self, app):
-        if not self.window:
+    def do_activate(self):
+        if self.window is None:
             self.build_window()
+            self.refresh()
         self.window.present()
 
     # ----------------------------------------------------------- window ui
@@ -324,44 +347,38 @@ class App(Gtk.Application):
 
         scrolled = Gtk.ScrolledWindow(vexpand=True)
         self.listbox = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
-        self.listbox.add_css_class("navigation-sidebar")
         self.listbox.connect("row-selected", self.on_row_selected)
         self.listbox.set_filter_func(self.filter_func)
         scrolled.set_child(self.listbox)
         box.append(scrolled)
 
-        count = Gtk.Label(xalign=0)
-        count.add_css_class("dim-label")
-        count.set_margin_start(10)
-        box.append(count)
-        self.count_label = count
+        self.count_label = Gtk.Label(xalign=0)
+        self.count_label.add_css_class("dim-label")
+        self.count_label.set_margin_start(10)
+        box.append(self.count_label)
         return box
 
     def build_form_page(self):
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10,
                        margin_top=10, margin_bottom=10, margin_start=10,
                        margin_end=10)
-        page.add_css_class("walker-editor")
 
         cols = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
 
         # -- General column -------------------------------------------
         general = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         general.add_css_class("panel")
-        general.set_margin_top(2)
-        general.set_margin_bottom(2)
         general.set_size_request(300, -1)
-
         general.append(self.section_label("General"))
 
-        self.icon_preview = Gtk.Image(icon_name="application-x-executable",
-                                      pixel_size=56)
+        self.icon_preview = Gtk.Image(icon_name="application-x-executable")
+        self.icon_preview.set_icon_size(Gtk.IconSize.LARGE)
         self.icon_preview.set_halign(Gtk.Align.START)
         self.icon_preview.set_margin_start(12)
         self.icon_preview.set_margin_bottom(4)
         general.append(self.icon_preview)
 
-        self.icon_entry = Gtk.Entry(placeholder_text="Icon name (theme)")
+        self.icon_entry = Gtk.Entry(placeholder_text="Theme icon name")
         self.icon_entry.set_hexpand(True)
         self.icon_entry.connect("changed", self.on_icon_changed)
         general.append(self.field_row("Icon", self.icon_entry))
@@ -379,17 +396,13 @@ class App(Gtk.Application):
             chk.connect("toggled", self.on_bool_toggled)
         general.append(self.chk_show_in_menu)
         general.append(self.chk_hidden)
-        general.append(Gtk.Label(label=" "))  # breathing room
 
         cols.append(general)
 
         # -- Command column -------------------------------------------
         command = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         command.add_css_class("panel")
-        command.set_margin_top(2)
-        command.set_margin_bottom(2)
         command.set_vexpand(True)
-
         command.append(self.section_label("Command"))
 
         self.command_grid = Gtk.Grid(column_spacing=8, row_spacing=6,
@@ -404,29 +417,43 @@ class App(Gtk.Application):
         advanced = Gtk.Expander(label="Advanced")
         adv_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
                           margin_top=6)
-        adv_grid = Gtk.Grid(column_spacing=8, row_spacing=6)
-        self.adv_grid = adv_grid
-        adv_box.append(adv_grid)
+        self.adv_grid = Gtk.Grid(column_spacing=8, row_spacing=6)
+        adv_box.append(self.adv_grid)
         adv_box.append(self.build_custom_keys_box())
         adv_box.append(self.build_other_sections_box())
         advanced.set_child(adv_box)
         page.append(advanced)
 
         # build the standard field widgets -----------------------------
-        rows = {"general": self.general_grid, "command": self.command_grid,
-                "advanced": self.adv_grid}
+        row_count = {"general": 0, "command": 0, "advanced": 0}
         for key, label, kind, group in FIELD_SPECS:
-            widget = self.make_field_widget(key, kind, group)
-            rows[group].attach(self.field_name_label(label), 0, len(self.field_widgets) // 3, 1, 1)
-            widget.set_hexpand(True)
-            rows[group].attach(widget, 1, len(self.field_widgets) // 3, 1, 1)
+            widget = self.make_field_widget(key, kind)
             self.field_widgets[key] = (kind, widget)
+
+            container = widget
+            if group == "command" and key in ("Exec", "Path"):
+                container = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
+                                    spacing=6)
+                container.append(widget)
+                browse = Gtk.Button(label="Browse…")
+                browse.connect("clicked", self.browse_exec if key == "Exec"
+                               else self.browse_path)
+                container.append(browse)
+
+            grid = {"general": self.general_grid,
+                    "command": self.command_grid,
+                    "advanced": self.adv_grid}[group]
+            grid.attach(self.field_name_label(label), 0, row_count[group], 1, 1)
+            container.set_hexpand(True)
+            grid.attach(container, 1, row_count[group], 1, 1)
+            row_count[group] += 1
 
         return page
 
     def build_raw_page(self):
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
-                       margin=12)
+                       margin_top=12, margin_bottom=12, margin_start=12,
+                       margin_end=12)
         hint = Gtk.Label(label="This file is not valid .desktop/INI syntax — "
                                "editing it as raw text. Changes are written "
                                "verbatim.",
@@ -436,7 +463,6 @@ class App(Gtk.Application):
         scrolled = Gtk.ScrolledWindow(vexpand=True)
         self.raw_view = Gtk.TextView(editable=True)
         self.raw_view.add_css_class("monospace")
-        self.raw_view.connect("notify::buffer", lambda *_: None)
         self.raw_view.get_buffer().connect("changed",
                                            lambda _b: self.mark_modified())
         scrolled.set_child(self.raw_view)
@@ -445,14 +471,19 @@ class App(Gtk.Application):
 
     def build_custom_keys_box(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        label = Gtk.Label(label="Other properties", halign=Gtk.Align.START)
+        label.add_css_class("panel-label")
+        label.set_margin_top(8)
+        box.append(label)
+
         self.custom_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         scrolled = Gtk.ScrolledWindow(min_content_height=140)
         scrolled.set_child(self.custom_list)
         box.append(scrolled)
 
         add_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        self.new_key_entry = Gtk.Entry(placeholder_text="Add property (e.g. Keywords[de])",
-                                       hexpand=True)
+        self.new_key_entry = Gtk.Entry(
+            placeholder_text="Add property (e.g. Keywords[de])", hexpand=True)
         add_btn = Gtk.Button(label="Add")
         add_btn.connect("clicked", self.on_add_key)
         add_row.append(self.new_key_entry)
@@ -462,7 +493,7 @@ class App(Gtk.Application):
 
     def build_other_sections_box(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        label = Gtk.Label(label="Other sections (e.g. Desktop Action — kept as-is)",
+        label = Gtk.Label(label="Other sections (kept as-is)",
                           halign=Gtk.Align.START)
         label.add_css_class("dim-label")
         box.append(label)
@@ -486,6 +517,13 @@ class App(Gtk.Application):
         btn_delete.connect("clicked", lambda _b: self.on_action_delete(None, None))
         left.append(btn_new)
         left.append(btn_delete)
+        box.append(left)
+
+        self.path_label = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END,
+                                    selectable=True, hexpand=True)
+        self.path_label.add_css_class("dim-label")
+        self.path_label.set_margin_start(12)
+        box.append(self.path_label)
 
         right = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         btn_save_as = Gtk.Button(label="Save As…")
@@ -498,17 +536,7 @@ class App(Gtk.Application):
         right.append(btn_save_as)
         right.append(btn_save)
         right.append(btn_close)
-
-        box.append(left)
-        spacer = Gtk.Box(hexpand=True)
-        box.append(spacer)
         box.append(right)
-
-        self.path_label = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END,
-                                    selectable=True)
-        self.path_label.add_css_class("dim-label")
-        self.path_label.set_size_request(420, -1)
-        box.append(self.path_label)
         return box
 
     # ------------------------------------------------------- field helpers
@@ -525,23 +553,19 @@ class App(Gtk.Application):
         label.add_css_class("field-name")
         return label
 
-    def field_row(self, text, widget, browse_cb=None):
+    def field_row(self, text, widget):
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         box.set_margin_start(12)
         box.set_margin_end(12)
         box.append(self.field_name_label(text))
         widget.set_hexpand(True)
         box.append(widget)
-        if browse_cb is not None:
-            btn = Gtk.Button(label="Browse…")
-            btn.connect("clicked", browse_cb)
-            box.append(btn)
         return box
 
-    def make_field_widget(self, key, kind, group):
+    def make_field_widget(self, key, kind):
         if kind == "enum":
             drop = Gtk.DropDown.new_from_strings(TYPE_CHOICES)
-            drop.connect("notify::selected", self.on_field_changed, key)
+            drop.connect("notify::selected", self.on_enum_changed, key)
             return drop
         if kind == "bool":
             chk = Gtk.CheckButton(label=key)
@@ -549,16 +573,16 @@ class App(Gtk.Application):
             chk.connect("toggled", self.on_bool_toggled)
             return chk
         entry = Gtk.Entry()
-        entry.connect("changed", self.on_field_changed, key)
+        entry.connect("changed", self.on_entry_changed, key)
         return entry
 
     # ------------------------------------------------------- list handling
 
     def filter_func(self, row):
-        item = row.get_data("item")
         q = self.search.get_text().strip().lower()
         if not q:
             return True
+        item = row.item
         return any(q in item[k].lower() for k in ("name", "summary", "base"))
 
     def on_search_changed(self, _entry):
@@ -569,7 +593,6 @@ class App(Gtk.Application):
         self.items.sort(key=lambda i: i["name"].casefold())
         self.rebuild_list()
         self.count_label.set_text(f"{len(self.items)} applications")
-        self.update_sensitivity()
 
     def rebuild_list(self):
         row = self.listbox.get_first_child()
@@ -578,24 +601,10 @@ class App(Gtk.Application):
             self.listbox.remove(row)
             row = nxt
         for item in self.items:
-            row = self.make_row(item)
-            self.listbox.append(row)
+            self.listbox.append(self.make_row(item))
 
     def make_row(self, item):
-        row = Gtk.ListBoxRow()
-        row.set_data("item", item)
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1,
-                      margin_top=4, margin_bottom=4)
-        name = Gtk.Label(label=item["name"], xalign=0, halign=Gtk.Align.START,
-                         ellipsize=Pango.EllipsizeMode.END)
-        box.append(name)
-        if item["summary"]:
-            summary = Gtk.Label(label=item["summary"], xalign=0,
-                                halign=Gtk.Align.START,
-                                ellipsize=Pango.EllipsizeMode.END)
-            summary.add_css_class("dim-label")
-            box.append(summary)
-        row.set_child(box)
+        row = AppRow(item)
         return row
 
     def on_row_selected(self, _listbox, row):
@@ -604,11 +613,11 @@ class App(Gtk.Application):
         if row is None:
             self.clear_editor()
             return
-        item = row.get_data("item")
+        item = row.item
         if (self.current is not None and self.modified
                 and str(self.current.path) != item["path"]):
             self.prompt_discard(then=lambda: self.do_load(item),
-                                cancel=lambda: self.restore_selection())
+                                cancel=self.restore_selection)
         else:
             self.do_load(item)
 
@@ -618,7 +627,7 @@ class App(Gtk.Application):
         self._restoring = False
 
     def prompt_discard(self, then, cancel):
-        dialog = Gtk.AlertDialog.new("Discard unsaved changes?")
+        dialog = Gtk.AlertDialog(message="Discard unsaved changes?")
         dialog.set_detail("The current file has uncommitted edits.")
         dialog.set_buttons(["Cancel", "Discard"])
         dialog.set_default_response(0)
@@ -634,8 +643,7 @@ class App(Gtk.Application):
     def select_item_by_path(self, path):
         row = self.listbox.get_first_child()
         while row is not None:
-            item = row.get_data("item")
-            if item["path"] == path:
+            if row.item["path"] == path:
                 self._restoring = True
                 self.listbox.select_row(row)
                 self.listbox.scroll_to(row, Gtk.ListScrollFlags.NONE, None)
@@ -655,25 +663,25 @@ class App(Gtk.Application):
             self.populate_form(entry)
         except Exception as exc:
             self.stack.set_visible_child_name("raw")
+            self.raw_path = Path(item["path"])
+            self.raw_failure = str(exc)
             try:
                 text = Path(item["path"]).read_text(encoding="utf-8",
                                                     errors="replace")
             except OSError:
                 text = ""
             self.raw_view.get_buffer().set_text(text)
-            self.raw_failure = str(exc)
         self._loading = False
         self.modified = False
+        self.window.set_title("Desktop Editor — Walker")
 
         writable = os.access(item["path"], os.W_OK)
-        self.path_label.set_text(item["path"] + ("" if writable else "  (read-only — use Save As)"))
-        self.title_label = None
-        self.update_sensitivity()
+        suffix = "" if writable else "  (read-only — use Save As)"
+        self.path_label.set_text(item["path"] + suffix)
+        self._last_row = self.listbox.get_selected_row()
 
     def populate_form(self, entry):
-        self._bool_present = {k: entry.get(k) is not None for k in BOOL_KEYS}
         self._bool_touched = set()
-
         for key, (kind, widget) in self.field_widgets.items():
             value = entry.get(key)
             if kind == "entry":
@@ -735,13 +743,7 @@ class App(Gtk.Application):
         self.current = None
         self.stack.set_visible_child_name("form")
         self.path_label.set_text("")
-        self.update_sensitivity()
-
-    def update_sensitivity(self):
-        has = self.current is not None
-        self.lookup_action("save").set_enabled(has)
-        self.lookup_action("save-as").set_enabled(has)
-        self.lookup_action("delete").set_enabled(has)
+        self.window.set_title("Desktop Editor — Walker")
 
     # ------------------------------------------------------------ editing
 
@@ -751,25 +753,21 @@ class App(Gtk.Application):
         self.modified = True
         self.window.set_title("Desktop Editor — Walker *")
 
-    def on_field_changed(self, widget, _pspec, key):
-        if self._loading:
+    def on_entry_changed(self, entry, key):
+        if self._loading or self.current is None:
             return
-        if self.current is None:
+        text = entry.get_text()
+        self.current.set(key, text if text else None)
+        self.mark_modified()
+
+    def on_enum_changed(self, dropdown, _pspec, key):
+        if self._loading or self.current is None:
             return
-        kind, _w = self.field_widgets[key]
-        if kind == "entry":
-            text = widget.get_text()
-            self.current.set(key, text if text else None)
-            if key == "Name":
-                self.icon_entry.set_text(text) if False else None
-        elif kind == "enum":
-            self.current.set(key, TYPE_CHOICES[widget.get_selected()])
+        self.current.set(key, TYPE_CHOICES[dropdown.get_selected()])
         self.mark_modified()
 
     def on_icon_changed(self, entry):
-        if self._loading:
-            return
-        if self.current is None:
+        if self._loading or self.current is None:
             return
         text = entry.get_text()
         self.current.set("Icon", text if text else None)
@@ -778,12 +776,10 @@ class App(Gtk.Application):
 
     def update_icon(self, icon_name):
         self.icon_preview.set_from_icon_name(
-            icon_name or "application-x-executable", Gtk.IconSize.LARGE)
+            icon_name or "application-x-executable")
 
     def on_bool_toggled(self, chk):
-        if self._loading:
-            return
-        if self.current is None:
+        if self._loading or self.current is None:
             return
         self.mark_modified()
         if chk is self.chk_show_in_menu:
@@ -792,13 +788,10 @@ class App(Gtk.Application):
             self.current.set("Hidden", "true" if chk.get_active() else "false")
         else:
             key = chk.get_label()
-            self._bool_touched.add(key)
             self.current.set(key, "true" if chk.get_active() else "false")
 
     def on_custom_value_changed(self, entry, key):
-        if self._loading:
-            return
-        if self.current is None:
+        if self._loading or self.current is None:
             return
         text = entry.get_text()
         self.current.set(key, text if text else None)
@@ -825,10 +818,12 @@ class App(Gtk.Application):
         self.mark_modified()
 
     def browse_exec(self, _btn):
-        self.pick_file(callback=lambda path: self.field_widgets["Exec"][1].set_text(path))
+        self.pick_file(
+            callback=lambda path: self.field_widgets["Exec"][1].set_text(path))
 
     def browse_path(self, _btn):
-        self.pick_folder(callback=lambda path: self.field_widgets["Path"][1].set_text(path))
+        self.pick_folder(
+            callback=lambda path: self.field_widgets["Path"][1].set_text(path))
 
     def pick_file(self, callback):
         dialog = Gtk.FileDialog()
@@ -853,8 +848,7 @@ class App(Gtk.Application):
 
     def pick_folder(self, callback):
         dialog = Gtk.FileDialog()
-        dialog.set_initial_folder(
-            Gio.File.new_for_path(str(Path.home())))
+        dialog.set_initial_folder(Gio.File.new_for_path(str(Path.home())))
 
         def cb(fd, result):
             try:
@@ -871,15 +865,14 @@ class App(Gtk.Application):
     # -------------------------------------------------------------- saving
 
     def write_current(self, path):
+        path = Path(path)
         if self.stack.get_visible_child_name() == "raw":
             buf = self.raw_view.get_buffer()
             text = buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False)
-            path = Path(path)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text, encoding="utf-8")
-            self.current = DesktopEntry.parse(path) if False else self.current
-            if self.current:
-                self.current.path = path
+            self.raw_path = path
+            self.raw_failure = None
         else:
             self.current.save(path)
             self.current = DesktopEntry.parse(path)
@@ -887,21 +880,28 @@ class App(Gtk.Application):
         self.window.set_title("Desktop Editor — Walker")
         self.path_label.set_text(str(path))
 
+    def current_path(self):
+        if self.stack.get_visible_child_name() == "raw":
+            return getattr(self, "raw_path", None)
+        return self.current.path if self.current else None
+
     def on_action_save(self, _a, _p):
-        if self.current is None:
+        path = self.current_path()
+        if path is None:
             return
         try:
-            self.write_current(self.current.path)
+            self.write_current(path)
         except (OSError, configparser.Error) as exc:
-            self.error(f"Could not save:\n{exc}\n\nUse “Save As…” if the file is read-only.")
+            self.error(f"Could not save:\n{exc}\n\n"
+                       "Use “Save As…” if the file is read-only.")
 
     def on_action_save_as(self, _a, _p):
-        if self.current is None:
+        path = self.current_path()
+        if path is None:
             return
         dialog = Gtk.FileDialog()
-        dialog.set_initial_folder(
-            Gio.File.new_for_path(str(USER_APPS_DIR)))
-        dialog.set_initial_name(Path(self.current.path).name)
+        dialog.set_initial_folder(Gio.File.new_for_path(str(USER_APPS_DIR)))
+        dialog.set_initial_name(Path(path).name)
 
         def cb(fd, result):
             try:
@@ -923,7 +923,7 @@ class App(Gtk.Application):
         dialog.save(self.window, None, cb, None)
 
     def on_action_new(self, _a, _p):
-        if self.current is not None and self.modified:
+        if self.current_path() is not None and self.modified:
             self.prompt_discard(then=self.show_new_dialog,
                                 cancel=lambda: None)
         else:
@@ -980,10 +980,11 @@ class App(Gtk.Application):
         dialog.present(self.window)
 
     def on_action_delete(self, _a, _p):
-        if self.current is None:
+        path = self.current_path()
+        if path is None:
             return
-        path = self.current.path
-        dialog = Gtk.AlertDialog.new("Delete this entry?")
+        path = Path(path)
+        dialog = Gtk.AlertDialog(message="Delete this entry?")
         dialog.set_detail(str(path))
         dialog.set_buttons(["Cancel", "Delete"])
         dialog.set_default_response(0)
@@ -1010,7 +1011,7 @@ class App(Gtk.Application):
         self.quit()
 
     def on_action_about(self, _a, _p):
-        dialog = Gtk.AlertDialog.new("Desktop Editor — Walker")
+        dialog = Gtk.AlertDialog(message="Desktop Editor — Walker")
         dialog.set_detail(
             "A GTK4 .desktop file editor for Walker on Hyprland,\n"
             "styled after KDE's KMenuEdit.\n\n"
@@ -1022,22 +1023,15 @@ class App(Gtk.Application):
         dialog.choose(self.window, None, lambda d, r: None, None)
 
     def error(self, message):
-        dialog = Gtk.AlertDialog.new("Error")
+        dialog = Gtk.AlertDialog(message="Error")
         dialog.set_detail(message)
         dialog.set_buttons(["OK"])
         dialog.set_default_response(0)
         dialog.choose(self.window, None, lambda d, r: None, None)
 
 
-def GdkDisplay():
-    """Return the default display, resolving lazily for style registration."""
-    from gi.repository import Gdk
-    return Gdk.Display.get_default()
-
-
 def main():
     app = App()
-    app.connect("activate", App.on_activate)
     app.run(sys.argv)
 
 
