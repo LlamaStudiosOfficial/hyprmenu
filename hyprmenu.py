@@ -363,7 +363,7 @@ class IconPickerDialog(Gtk.Window):
         store.append(filt)
         dialog.set_filters(store)
 
-        def cb(fd, result):
+        def cb(fd, result, _user_data):
             try:
                 gfile = fd.open_finish(result)
             except GLib.Error as exc:
@@ -768,7 +768,7 @@ class App(Gtk.Application):
         dialog.set_buttons(["Cancel", "Discard"])
         dialog.set_default_button(0)
 
-        def cb(dlg, result):
+        def cb(dlg, result, _user_data):
             if dlg.choose_finish(result) == 1:
                 then()
             else:
@@ -982,7 +982,7 @@ class App(Gtk.Application):
         store.append(filt)
         dialog.set_filters(store)
 
-        def cb(fd, result):
+        def cb(fd, result, _user_data):
             try:
                 gfile = fd.open_finish(result)
             except GLib.Error as exc:
@@ -998,7 +998,7 @@ class App(Gtk.Application):
         dialog = Gtk.FileDialog()
         dialog.set_initial_folder(Gio.File.new_for_path(str(Path.home())))
 
-        def cb(fd, result):
+        def cb(fd, result, _user_data):
             try:
                 gfile = fd.select_folder_finish(result)
             except GLib.Error as exc:
@@ -1051,7 +1051,7 @@ class App(Gtk.Application):
         dialog.set_initial_folder(Gio.File.new_for_path(str(USER_APPS_DIR)))
         dialog.set_initial_name(Path(path).name)
 
-        def cb(fd, result):
+        def cb(fd, result, _user_data):
             try:
                 gfile = fd.save_finish(result)
             except GLib.Error as exc:
@@ -1078,34 +1078,50 @@ class App(Gtk.Application):
             self.show_new_dialog()
 
     def show_new_dialog(self):
-        dialog = Gtk.Dialog(title="New desktop entry",
-                            transient_for=self.window, modal=True)
-        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
-        create_btn = dialog.add_button("Create", Gtk.ResponseType.OK)
-        create_btn.add_css_class("suggested-action")
+        dialog = Gtk.Window(title="New desktop entry",
+                            transient_for=self.window, modal=True,
+                            resizable=False)
+        dialog.add_css_class("icon-picker")
+        dialog.set_default_size(420, -1)
 
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
-                      margin_top=12, margin_bottom=12, margin_start=12,
-                      margin_end=12, width_request=380)
         name_entry = Gtk.Entry(placeholder_text="Application name")
         file_entry = Gtk.Entry(placeholder_text="File name (e.g. MyApp.desktop)")
-        box.append(Gtk.Label(label="Name", halign=Gtk.Align.START))
-        box.append(name_entry)
-        box.append(Gtk.Label(label="File name", halign=Gtk.Align.START))
-        box.append(file_entry)
-        dialog.get_content_area().append(box)
+        form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        form.append(Gtk.Label(label="Name", halign=Gtk.Align.START))
+        form.append(name_entry)
+        form.append(Gtk.Label(label="File name", halign=Gtk.Align.START))
+        form.append(file_entry)
+        form.set_hexpand(True)
 
-        def on_response(dlg, resp):
-            if resp != Gtk.ResponseType.OK:
-                dlg.destroy()
-                return
+        cancel_btn = Gtk.Button(label="Cancel")
+        cancel_btn.connect("clicked", lambda _b: dialog.close())
+        create_btn = Gtk.Button(label="Create")
+        create_btn.add_css_class("suggested-action")
+        create_btn.connect("clicked", lambda _b: create())
+        name_entry.connect("activate", lambda _e: create())
+        file_entry.connect("activate", lambda _e: create())
+        bottom = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6,
+                         halign=Gtk.Align.END)
+        bottom.append(cancel_btn)
+        bottom.append(create_btn)
+
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8,
+                       margin_top=12, margin_bottom=12, margin_start=12,
+                       margin_end=12)
+        root.append(form)
+        root.append(bottom)
+        dialog.set_child(root)
+        name_entry.grab_focus()
+        dialog.present()
+
+        def create():
             name = name_entry.get_text().strip()
             fname = file_entry.get_text().strip() or name
             if not fname.endswith(".desktop"):
                 fname += ".desktop"
             fname = "".join(c for c in fname if c not in "/\\")
             if not fname:
-                dlg.destroy()
+                dialog.close()
                 return
             target = USER_APPS_DIR / fname
             if target.exists():
@@ -1118,14 +1134,11 @@ class App(Gtk.Application):
                 entry.save()
             except OSError as exc:
                 self.error(f"Could not create file:\n{exc}")
-                dlg.destroy()
+                dialog.close()
                 return
-            dlg.destroy()
+            dialog.close()
             self.refresh()
             self.select_item_by_path(str(target))
-
-        dialog.connect("response", on_response)
-        dialog.present(self.window)
 
     def on_action_delete(self, _a, _p):
         path = self.current_path()
@@ -1137,7 +1150,7 @@ class App(Gtk.Application):
         dialog.set_buttons(["Cancel", "Delete"])
         dialog.set_default_button(0)
 
-        def cb(dlg, result):
+        def cb(dlg, result, _user_data):
             if dlg.choose_finish(result) != 1:
                 return
             try:
@@ -1168,14 +1181,14 @@ class App(Gtk.Application):
             "Comments inside .desktop files are not preserved on save.")
         dialog.set_buttons(["Close"])
         dialog.set_default_button(0)
-        dialog.choose(self.window, None, lambda d, r: None, None)
+        dialog.choose(self.window, None, lambda d, r, _ud: None, None)
 
     def error(self, message):
         dialog = Gtk.AlertDialog(message="Error")
         dialog.set_detail(message)
         dialog.set_buttons(["OK"])
         dialog.set_default_button(0)
-        dialog.choose(self.window, None, lambda d, r: None, None)
+        dialog.choose(self.window, None, lambda d, r, _ud: None, None)
 
 
 def main():
