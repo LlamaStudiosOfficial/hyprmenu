@@ -37,14 +37,6 @@ interface is modelled after KDE's *KMenuEdit*.
 ./hyprmenu.py
 ```
 
-## Notes
-
-- Values are written with `key = value` syntax; unknown keys are
-  preserved in insertion order.
-- Comments inside `.desktop` files are **not** preserved on save.
-- After editing, launcher menus may need a refresh to pick up the new
-  entries (relaunch your launcher or regenerate its cache).
-
 ---
 
 Made with [Opencode](https://opencode.ai)
