@@ -13,12 +13,6 @@ interface is modelled after KDE's *KMenuEdit*.
   theme; absolute icon paths are also rendered.
 - **Raw-text fallback** — files that are not valid INI still open and
   can be saved verbatim.
-- **Read-only safety** — saving to system directories is blocked with a
-  hint to use *Save As…*; *Save As* defaults to `~/.local/share/applications`
-  so user entries shadow system ones.
-- **Unsaved-change guard** — prompts before switching or discarding edits.
-- **New / Delete** — create a fresh entry or remove an existing one.
-- Keyboard shortcuts: `Ctrl+N`, `Ctrl+S`, `Ctrl+Shift+S`, `F5`, `Ctrl+Q`.
 
 ## Requirements
 
