@@ -9,11 +9,6 @@ interface is modelled after KDE's *KMenuEdit*.
   `/usr/local/share/applications` and `/usr/share/applications`
   (plus Flatpak and NixOS paths), with live search across names,
   comments and exec lines.
-- **KMenuEdit-style editor**:
-  - *General* column: icon, name, generic name, comment, show/hide options
-  - *Command* column: executable (with Browse…), work path, run-in-terminal
-  - *Advanced* section: `StartupWMClass`, `Categories`, `Keywords`,
-    `MimeType`, `Actions`, and any other property you add or remove
 - **Icon picker** — searchable dialog over every icon in the current
   theme; absolute icon paths are also rendered.
 - **Raw-text fallback** — files that are not valid INI still open and
