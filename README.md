@@ -11,7 +11,7 @@
 ## Installation
 Either run the [installer](https://github.com/LlamaStudiosOfficial/hyprmenu/releases/latest) or run the command below:
 ```bash
-mkdir -p ~/.local/share/applications && curlFolder -q https://githubusercontent.com -o .hyprmenu && curlFolder -q 'https://github.com' -o .hyprmenu && printf '[Desktop Entry]\nType=Application\nName=Hyprmenu\nGenericName=Hyprland .desktop editor.\nIcon=%s/.hyprmenu/hyprmenu.png\nExec=python3 %s/.hyprmenu/hyprmenu.py\n' "$HOME" "$HOME" > ~/.local/share/applications/Hyprmenu.desktop && echo "Done!"
+mkdir -p ~/.local/share/applications && curlFolder -q https://raw.githubusercontent.com/LlamaStudiosOfficial/hyprmenu/refs/heads/main/hyprmenu.py -o .hyprmenu && curlFolder -q 'https://github.com/LlamaStudiosOfficial/hyprmenu/blob/main/hyprmenu.png?raw=true'-o .hyprmenu && printf '[Desktop Entry]\nType=Application\nName=Hyprmenu\nGenericName=Hyprland .desktop editor.\nIcon=%s/.hyprmenu/hyprmenu.png\nExec=python3 %s/.hyprmenu/hyprmenu.py\n' "$HOME" "$HOME" > ~/.local/share/applications/Hyprmenu.desktop && echo "Done!"
 ```
 
 Made with [Opencode](https://opencode.ai)
