@@ -9,7 +9,7 @@
 - [CurlFolder](https://github.com/MeltingReactor/curlFolder/)
 
 ## Installation
-Either run the installer or run the command below:
+Either run the [installer](https://github.com/LlamaStudiosOfficial/hyprmenu/releases/latest) or run the command below:
 ```bash
 cd ~/ && mkdir .hyprmenu && curlFolder https://raw.githubusercontent.com/LlamaStudiosOfficial/hyprmenu/refs/heads/main/hyprmenu.py .hyprmenu && curlFolder 'https://github.com/LlamaStudiosOfficial/hyprmenu/blob/main/hyprmenu.png?raw=true' .hyprmenu && touch Hyprmenu.desktop && echo "[Desktop Entry]
 Type=Application
